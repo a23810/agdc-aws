@@ -1,0 +1,279 @@
+{
+    "Parameters" : {
+        "VPC" : {
+            "Description" : "Target VPC ID here",
+            "Default" : "yourvpcidhere",
+            "Type" : "AWS::EC2::VPC::Id"
+        },
+        "ImageId" : {
+            "Description" : "The Amazon EC2 image ID",
+            "Default" : "ami-d3daace9",
+            "Type" : "String"
+        },
+        "InstanceType" : {
+            "Description" : "The Amazon instance type ID",
+            "Default" : "m2.micro",
+            "Type" : "String"
+        },
+        "KeyName" : {
+            "Description" : "The EC2 Key Pair to allow SSH access to the instances",
+            "Default" : "yourkeyhere",
+            "Type" : "AWS::EC2::KeyPair::KeyName"
+        },
+        "MaxSize" : {
+            "Description" : "Maximum number of Apache HTTPD reverse proxies",
+            "Default" : "2",
+            "Type" : "Number"
+        },
+        "MinSize" : {
+            "Description" : "Minimum number of Apache HTTPD reverse proxies",
+            "Default" : "2",
+            "Type" : "Number"
+        },
+        "StartupGracePeriod" : {
+            "Description" : "Time after startup before auto-scaling group will evict a failed launch (how long a successful launch should take)",
+            "Default" : "1200",
+            "Type" : "Number"
+        },
+        "StatusNotificationTopic" : {
+            "Description" : "SNS topic to publish events/notifcations to",
+            "Default" : "yoursnstopichere",
+            "Type" : "String"
+        },
+        "UserDataBase64" : {
+            "Description" : "Instance launch script in Base64 format",
+            "Default" : "",
+            "Type" : "String"
+        },
+        "SSHPort" : {
+            "Description" : "SSH port from Bastion host",
+            "Default" : "22",
+            "Type" : "Number"
+        },
+        "HTTPELBServerPort" : {
+            "Description" : "Public ELB server port for HTTP proxy",
+            "Default" : "80",
+            "Type" : "Number"
+        },
+        "HTTPServerPort" : {
+            "Description" : "HTTP proxy port",
+            "Default" : "80",
+            "Type" : "Number"
+        },
+        "AppELBServerPort" : {
+            "Description" : "Application ELB port",
+            "Default" : "80",
+            "Type" : "Number"
+        },
+        "LogConsolidationS3BucketName" : {
+            "Description" : "Log Consolidation S3 Bucket Name",
+            "Default" : "yours3buckethere",
+            "Type" : "String"
+        },
+        "TargetSubnets" : {
+            "Description" : "The public subnets for your Apache Reverse Proxy and Load Balancer",
+            "Default" : "yourtargetsubnetshere",
+            "Type" : "List<AWS::EC2::Subnet::Id>"
+        },
+        "SSHPort":{
+            "Description" : "Port for Bastion SSH access",
+            "Default" : "22",
+            "Type" : "Number"
+        },
+        "BastionHostSG" : {
+            "Description" : "Security Group of Bastion Host to allow SSH access",
+            "Default" : "yourbastionhostsecuritygrouphere",
+            "Type" : "List<AWS::EC2::SecurityGroup::Id>"
+        },
+        "NatHTTPPort" : {
+            "Description" : "NAT Port for HTTP",
+            "Default" : "80",
+            "Type" : "Number"
+        },
+        "NatHTTPSPort" : {
+            "Description" : "NAT Port for HTTPS",
+            "Default" : "443",
+            "Type" : "Number"
+        },
+        "NatSG" : {
+            "Description" : "Security Group for NAT usage",
+            "Default" : "yournatsecuritygrouphere",
+            "Type" : "List<AWS::EC2::SecurityGroup::Id>"
+        },
+        "AppServerELBPort" : {
+            "Description" : "HTTP Port for Application Server ELB Port",
+            "Default" : "8080",
+            "Type" : "Number"
+        },
+        "AppServerELBSG" : {
+            "Description" : "Security Group for AppServer ELB",
+            "Default" : "yourapplicationserverelbsecuritrygrouphere",
+            "Type" : "List<AWS::EC2::SecurityGroup::Id>"
+        },
+        "PurchaseOrder" : {
+            "Description" : "Purchase Order for tagging of resourceS",
+            "Default" : "yourpurchaseorderhere",
+            "Type" : "String"
+        }
+    },
+    "Resources" : {
+        "AutoScalingGroup" : {
+            "Type" : "AWS::AutoScaling::AutoScalingGroup",
+            "Properties" : {
+                "HealthCheckGracePeriod" : {"Ref" : "StartupGracePeriod" },
+                "HealthCheckType" : "ELB",
+                "LaunchConfigurationName" : {"Ref" : "LaunchConfiguration" },
+                "LoadBalancerNames" : [{"Ref" : "ApacheElasticLoadBalancer" }],
+                "MaxSize" : {"Ref" : "MaxSize" },
+                "MinSize" : {"Ref" : "MinSize" },
+                "DesiredCapacity" : {"Ref" : "MinSize" },
+                "NotificationConfiguration" : {
+                    "TopicARN" : {"Ref" : "StatusNotificationTopic" },
+                    "NotificationTypes" : [
+                        "autoscaling:EC2_INSTANCE_LAUNCH",
+                        "autoscaling:EC2_INSTANCE_LAUNCH_ERROR",
+                        "autoscaling:EC2_INSTANCE_TERMINATE",
+                        "autoscaling:EC2_INSTANCE_TERMINATE_ERROR"
+                    ]
+                },
+                "VPCZoneIdentifier" : {"Ref" : "TargetSubnets" }
+            }
+        },
+        "ApacheElasticLoadBalancer" : {
+            "Type" : "AWS::ElasticLoadBalancing::LoadBalancer",
+            "Properties" : {
+                "AccessLoggingPolicy" : {
+                    "EmitInterval" : "60",
+                    "Enabled" : "true",
+                    "S3BucketName" : {"Ref" : "LogConsolidationS3BucketName" },
+                    "S3BucketPrefix" : {"Ref" : "AWS::StackName" }
+                },
+                "HealthCheck" : {
+                    "Target" : {"Fn::Join" : ["",["HTTP: ",{"Ref" : "HTTPServerPort" },"/"]]},
+                    "HealthyThreshold" : "2",
+                    "Interval" : "30",
+                    "Timeout" : "10",
+                    "UnhealthyThreshold" : "10"
+                },
+                "ConnectionDrainingPolicy" : {
+                    "Enabled" : "true",
+                    "Timeout" : "300"
+                },
+                "Listeners" : [
+                    {
+                        "InstancePort" : {"Ref" : "HTTPServerPort" },
+                        "LoadBalancerPort" : {"Ref" : "HTTPELBServerPort" },
+                        "Protocol" : "HTTP"
+                    }
+                ],
+                "SecurityGroups" : [{ "Ref" :"ApacheELBSecurityGroup"}],
+                "Scheme" : "internet-facing",
+                "Subnets" : {"Ref" : "TargetSubnets" },
+                "Tags" : [
+                    {"Key" : "Purchase Order", "Value" : { "Ref" : "PurchaseOrder" }}
+                ]
+            }
+        },
+        "LaunchConfiguration" : {
+            "Type" : "AWS::AutoScaling::LaunchConfiguration",
+            "Properties" : {                
+                "ImageId" : {"Ref" : "ImageId" },
+                "InstanceMonitoring" : "false",
+                "InstanceType" : {"Ref" : "InstanceType" },
+                "KeyName" : {"Ref" : "KeyName" },
+                "SecurityGroups" : {"Ref" : "ApacheInstanceSecurityGroup" },
+                "UserData" : {"Ref" : "UserDataBase64" }
+            }
+        },
+        "ApacheELBSecurityGroup" : {
+            "Type" : "AWS::EC2::SecurityGroup",
+            "Properties" : {
+                "GroupDescription" : "Apache ELB SecurityGroup",
+                "VpcId" : {"Ref" : "VPC" },
+                "Tags" : [
+                    {"Key" : "Purchase Order","Value" : {"Ref" : "PurchaseOrder" }}
+                ]
+            }
+        },
+        "ApacheELBSGIngress" : {
+            "Type" : "AWS::EC2::SecurityGroupIngress",
+            "Properties" : {
+                "GroupName" : { "Ref" : "ApacheELBSecurityGroup" },
+                "CidrIp" : "0.0.0.0/0",
+                "FromPort" : {"Ref" : "HTTPELBServerPort" },
+                "IpProtocol" : "tcp",
+                "ToPort" : {"Ref" : "HTTPELBServerPort" }
+            }
+        },
+        "ApacheELBSGEgress" : {
+            "Type" : "AWS::EC2::SecurityGroupEgress",
+            "Properties" : {
+                "GroupName" : { "Ref" : "ApacheELBSecurityGroup" },
+                "FromPort" : {"Ref" : "HTTPELBServerPort" },
+                "IpProtocol" : "tcp",
+                "ToPort" : {"Ref" : "HTTPServerPort" },
+                "DestinationSecurityGroupId" : {"Ref" : "ApacheInstanceSecurityGroup" }
+            }
+        },
+        "ApacheInstanceSecurityGroup" : {
+            "Type" : "AWS::EC2::SecurityGroup",
+            "Properties" : {
+                "GroupDescription" : "Apache Instance SecurityGroup",
+                "VpcId" : {"Ref" : "VPC" },
+                "Tags" : [
+                    {"Key" : "Purchase Order","Value" : {"Ref" : "PurchaseOrder" }}
+                ]
+            }
+        },
+        "ApacheInstanceSSHSGIngress" : {
+            "Type" : "AWS::EC2::SecurityGroupIngress",
+            "Properties" : {
+                "GroupName" : { "Ref" : "ApacheInstanceSecurityGroup" },
+                "FromPort" : {"Ref" : "SSHPort" },
+                "IpProtocol" : "tcp",
+                "ToPort" : {"Ref" : "SSHPort" },
+                "SourceSecurityGroupId" : {"Ref" : "BastionHostSG" }
+            }
+        },
+        "ApacheInstanceHTTPSGIngress" : {
+            "Type" : "AWS::EC2::SecurityGroupIngress",
+            "Properties" : {
+                "GroupName" : { "Ref" : "ApacheInstanceSecurityGroup" },
+                "FromPort" : {"Ref" : "HTTPServerPort" },
+                "IpProtocol" : "tcp",
+                "ToPort" : {"Ref" : "HTTPServerPort" },
+                "SourceSecurityGroupId": {"Ref" : "ApacheELBSecurityGroup" }
+            }
+        },
+        "ApacheInstanceAppSGEgress" : {
+            "Type" : "AWS::EC2::SecurityGroupEgress",
+            "Properties" : {
+                "GroupName" : { "Ref" : "ApacheELBSecurityGroup" },
+                "FromPort" : {"Ref" : "AppServerELBPort" },
+                "IpProtocol" : "tcp",
+                "ToPort" : {"Ref" : "AppServerELBPort" },
+                "DestinationSecurityGroupId" : {"Ref" : "AppServerELBSG" }
+            }
+        },
+        "ApacheInstanceNatHttpSGEgress" : {
+            "Type" : "AWS::EC2::SecurityGroupEgress",
+            "Properties" : {
+                "GroupName" : { "Ref" : "ApacheELBSecurityGroup" },
+                "FromPort" : {"Ref" : "NatHTTPPort" },
+                "IpProtocol" : "tcp",
+                "ToPort" : {"Ref" : "NatHTTPPort" },
+                "DestinationSecurityGroupId" : {"Ref" : "NatSG" }
+            }
+        },
+        "ApacheInstanceNatHttpsSGEgress" : {
+            "Type" : "AWS::EC2::SecurityGroupEgress",
+            "Properties" : {
+                "GroupName" : { "Ref" : "ApacheELBSecurityGroup" },
+                "FromPort" : {"Ref" : "NatHTTPSPort" },
+                "IpProtocol" : "tcp",
+                "ToPort" : {"Ref" : "NatHTTPSPort" },
+                "DestinationSecurityGroupId" : {"Ref" : "NatSG" }
+            }
+        }
+    }
+}
